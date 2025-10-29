@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from getpass import getpass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
@@ -1060,13 +1060,19 @@ def process_vm_secrets(
     configs: List[VmSecretConfig],
     reuse_existing: bool,
     pcloud_validator: Optional[PCloudAccountValidator] = None,
-) -> Dict[str, str]:
+) -> Tuple[Dict[str, str], Set[str]]:
     secret_ids: Dict[str, str] = {}
+    skipped_aliases: Set[str] = set()
     for cfg in configs:
         if pcloud_validator and cfg.secret_type == ArkSIAVMSecretType.PCloudAccount:
-            pcloud_validator.ensure_exists(cfg)
+            try:
+                pcloud_validator.ensure_exists(cfg)
+            except ValueError as exc:
+                LOGGER.warning("Skipping VM secret alias '%s': %s", cfg.alias, exc)
+                skipped_aliases.add(cfg.alias)
+                continue
         secret_ids[cfg.alias] = ensure_vm_secret(sia_api, cfg, reuse_existing)
-    return secret_ids
+    return secret_ids, skipped_aliases
 
 
 def process_databases(
@@ -1098,9 +1104,24 @@ def process_target_sets(
     configs: List[VmTargetSetConfig],
     vm_secret_ids: Dict[str, str],
     reuse_existing: bool,
+    skipped_aliases: Set[str],
 ) -> List[str]:
     created: List[str] = []
     for cfg in configs:
+        if cfg.secret_ref and cfg.secret_ref in skipped_aliases:
+            LOGGER.warning(
+                "Skipping target set '%s' because VM secret alias '%s' was previously skipped.",
+                cfg.name,
+                cfg.secret_ref,
+            )
+            continue
+        if cfg.secret_ref and cfg.secret_ref not in vm_secret_ids:
+            LOGGER.warning(
+                "Skipping target set '%s' because VM secret alias '%s' is unavailable.",
+                cfg.name,
+                cfg.secret_ref,
+            )
+            continue
         if reuse_existing:
             try:
                 existing = sia_api.workspace_target_sets.list_target_sets_by(ArkSIATargetSetsFilter(name=cfg.name))
@@ -1162,15 +1183,19 @@ def main() -> None:
         if any(secret.secret_type == ArkSIAVMSecretType.PCloudAccount for secret in template.vm_secrets):
             pcloud_validator = PCloudAccountValidator(ArkPCloudAPI(isp_auth))
 
-        vm_secret_ids = process_vm_secrets(sia_api, template.vm_secrets, reuse_existing, pcloud_validator)
+        vm_secret_ids, skipped_vm_aliases = process_vm_secrets(sia_api, template.vm_secrets, reuse_existing, pcloud_validator)
         created_databases = process_databases(sia_api, template.databases, db_secret_ids, reuse_existing)
-        created_target_sets = process_target_sets(sia_api, template.vm_target_sets, vm_secret_ids, reuse_existing)
+        created_target_sets = process_target_sets(
+            sia_api, template.vm_target_sets, vm_secret_ids, reuse_existing, skipped_vm_aliases
+        )
 
         LOGGER.info("Workspace onboarding finished.")
         if db_secret_ids:
             LOGGER.info("DB secrets loaded: %s", ", ".join(f"{alias}={sid}" for alias, sid in db_secret_ids.items()))
         if vm_secret_ids:
             LOGGER.info("VM secrets loaded: %s", ", ".join(f"{alias}={sid}" for alias, sid in vm_secret_ids.items()))
+        if skipped_vm_aliases:
+            LOGGER.warning("VM secrets skipped (not created): %s", ", ".join(sorted(skipped_vm_aliases)))
         LOGGER.info("Databases created: %s", ", ".join(created_databases) or "none")
         LOGGER.info("Target sets created: %s", ", ".join(created_target_sets) or "none")
     else:
