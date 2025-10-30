@@ -1,0 +1,87 @@
+================================================================================
+CyberArk SIA VM Onboarding Reference
+================================================================================
+
+This guide explains how to populate the onboarding templates used by `sia_onboarding.py`.
+All tables use fixed-width columns for readability in any editor.
+
+--------------------------------------------------------------------------------
+1. Template Files
+--------------------------------------------------------------------------------
+| File Name                      | Contents                                                      |
+|-------------------------------|---------------------------------------------------------------|
+| sia_vm_onboarding_template.csv | VM strong-account rows (`vm_secret`) and VM target sets (`vm_target_set`). |
+
+--------------------------------------------------------------------------------
+2. Record Types
+--------------------------------------------------------------------------------
+| Template | record_type    | Purpose                                                            |
+|----------|----------------|--------------------------------------------------------------------|
+| VM       | vm_secret      | Defines a VM provisioning secret (Privilege Cloud or local).        |
+| VM       | vm_target_set  | Describes a VM target set; references VM secrets.                   |
+
+--------------------------------------------------------------------------------
+3. Common Columns
+--------------------------------------------------------------------------------
+| Column        | Applies To                        | Notes                                                                  |
+|---------------|-----------------------------------|------------------------------------------------------------------------|
+| record_type * | All rows                          | Identifies the row type; do not change the value provided in samples.  |
+| name *        | vm_target_set                     | Display name of the VM target set.                                     |
+| alias         | vm_secret                         | Friendly ID reused by other rows. If left blank the script falls back to `secret_name` (must remain unique). |
+| secret_name   | vm_secret                         | Optional label shown in SIA; used as alias fallback when `alias` is empty. |
+| comment       | All rows                          | Free-text notes for admins.                                            |
+| tags          | vm_secret, vm_target_set          | Semi-colon separated `key=value` pairs (example: `env=prod;team=workspace`). |
+| enable_certificate_validation | vm_target_set     | `true/false` or `yes/no`; controls TLS certificate enforcement.        |
+
+(*) required.
+
+--------------------------------------------------------------------------------
+4. VM Strong-Account Columns (`record_type = vm_secret`)
+--------------------------------------------------------------------------------
+| Column                    | Required | Description / Usage                                             |
+|---------------------------|----------|-----------------------------------------------------------------|
+| secret_name               | No       | Friendly label for the VM secret.                               |
+| secret_type               | Yes      | `ProvisionerUser` or `PCloudAccount`.                           |
+| provisioner_username/password | Cond. | Required for `ProvisionerUser`.                                |
+| pcloud_account_safe/name  | Cond.    | Required for `PCloudAccount` (safe + strong-account name).      |
+| secret_details            | No       | JSON metadata (e.g., `{"owner":"Workspace"}`).                |
+| is_disabled               | No       | `true/false`; defaults to active (`false`).                      |
+
+--------------------------------------------------------------------------------
+5. VM Target Set Columns (`record_type = vm_target_set`)
+--------------------------------------------------------------------------------
+| Column                     | Required | Description / Usage                                             |
+|----------------------------|----------|-----------------------------------------------------------------|
+| name                       | Yes      | Name of the target set (often the domain).                      |
+| target_set_type            | No       | `Domain`, `Suffix`, or `Target`. Defaults to `Domain`.          |
+| description                | No       | Free-text summary.                                              |
+| provision_format           | No       | Format string for generated accounts (example: `{user}@corp.local`). |
+| enable_certificate_validation | No   | `true/false`; enables TLS validation on connectors.             |
+| secret_type                | No       | Secret type enforced for the set (`PCloudAccount`, `ProvisionerUser`, etc.). |
+| secret_alias               | Cond.    | Alias of the VM secret used; required unless `secret_id` supplied. |
+| secret_id                  | Cond.    | Direct VM secret ID instead of alias.                           |
+
+--------------------------------------------------------------------------------
+6. Working with Aliases
+--------------------------------------------------------------------------------
+- Define each `vm_secret` once and reuse via `secret_alias`.
+- If an alias is missing, the script stops with a validation error.
+- Privilege Cloud (`PCloudAccount`) secrets are validated through the Accounts API; invalid safe/account pairs are logged and skipped along with dependent target sets.
+- When `alias` is blank, the helper falls back to `secret_name`; ensure uniqueness.
+
+--------------------------------------------------------------------------------
+7. Example Mapping
+--------------------------------------------------------------------------------
+| Scenario                            | Example Columns                                                                           |
+|------------------------------------|-------------------------------------------------------------------------------------------|
+| VM target set using Privilege Cloud| `record_type=vm_target_set`, `name=corp.local`, `secret_alias=workstations_admin_secret`, `secret_type=PCloudAccount`. |
+
+--------------------------------------------------------------------------------
+8. Validation Checklist
+--------------------------------------------------------------------------------
+1. Populate the DB and/or VM CSV templates with tenant-specific data.
+2. Run `python3 sia_onboarding.py` and follow the prompts (choose DB, VM, or both).
+3. Review the console/log output for skipped entries (e.g., missing Privilege Cloud accounts).
+4. Correct any reported issues and rerun as needed.
+
+================================================================================

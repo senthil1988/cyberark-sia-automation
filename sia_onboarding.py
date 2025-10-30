@@ -265,6 +265,13 @@ class VmPolicyConfig:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CyberArk SIA helper for onboarding workspaces and access policies.")
     parser.add_argument(
+        "workspace_scope",
+        nargs="?",
+        type=lambda value: value.lower(),
+        choices=["db", "vm", "all", "both"],
+        help="Optional scope for workspace onboarding (db, vm, all/both). Defaults to 'all' when omitted.",
+    )
+    parser.add_argument(
         "--db-template",
         type=Path,
         default=Path("sia_db_onboarding_template.csv"),
@@ -1145,10 +1152,13 @@ def process_vm_secrets(
             try:
                 pcloud_validator.ensure_exists(cfg)
             except ValueError as exc:
-                LOGGER.warning("Skipping VM secret alias '%s': %s", cfg.alias, exc)
-                skipped_aliases.add(cfg.alias)
-                continue
-        secret_ids[cfg.alias] = ensure_vm_secret(sia_api, cfg, reuse_existing)
+                LOGGER.warning("Privilege Cloud validation failed for VM secret alias '%s': %s. Attempting to create secret in SIA.", cfg.alias, exc)
+        try:
+            secret_ids[cfg.alias] = ensure_vm_secret(sia_api, cfg, reuse_existing)
+        except ArkServiceException as exc:
+            LOGGER.warning("Skipping VM secret alias '%s': unable to ensure secret in SIA (%s)", cfg.alias, exc)
+            skipped_aliases.add(cfg.alias)
+            continue
     return secret_ids, skipped_aliases
 
 
@@ -1249,11 +1259,20 @@ def main() -> None:
     sia_api = ArkSIAAPI(isp_auth)
 
     if action == "workspace":
-        process_db = prompt_yes_no("Process DB onboarding template?", default=True)
-        process_vm = prompt_yes_no("Process VM onboarding template?", default=True)
+        scope_value = args.workspace_scope or "all"
+        scope = "all" if scope_value == "both" else scope_value
+        process_db = scope in {"db", "all"}
+        process_vm = scope in {"vm", "all"}
         if not process_db and not process_vm:
-            LOGGER.info("No onboarding templates selected. Nothing to do.")
+            LOGGER.info("No onboarding templates selected (argument value: %s). Nothing to do.", scope_value)
             return
+
+        if process_db and process_vm:
+            LOGGER.info("Workspace onboarding scope: databases and VM target sets")
+        elif process_db:
+            LOGGER.info("Workspace onboarding scope: databases only")
+        else:
+            LOGGER.info("Workspace onboarding scope: VM target sets only")
 
         reuse_existing = prompt_yes_no("Reuse existing SIA objects when matches are found?", default=True)
 

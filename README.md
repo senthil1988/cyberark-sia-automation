@@ -45,7 +45,8 @@ The script relies on the official [CyberArk ark-sdk-python](https://github.com/c
 ├── sia_vm_onboarding_template.csv   # Sample VM onboarding template
 ├── sia_db_access_policy_template.csv # Sample DB access policy template
 ├── sia_vm_access_policy_template.csv # Sample VM access policy template
-├── sia_onboarding_field_mapping.md   # DB/VM onboarding column mapping guide
+├── sia_db_onboarding_field_mapping.txt   # DB onboarding column mapping guide
+├── sia_vm_onboarding_field_mapping.txt   # VM onboarding column mapping guide
 ├── sia_access_policy_field_mapping.md # DB/VM policy column mapping guide
 └── README.md                    # This file
 ```
@@ -63,9 +64,10 @@ The script relies on the official [CyberArk ark-sdk-python](https://github.com/c
 
 2. **Run the helper**
    ```bash
-   python3 sia_onboarding.py
+   python3 sia_onboarding.py [db|vm|all]
    ```
 
+   * Optionally pass `db`, `vm`, or `all` as the first argument to control which onboarding templates run (defaults to `all`).
    * The script prompts you to choose **workspace onboarding** or **access policy provisioning**.
    * Provide ISP credentials, select MFA method, and specify template paths if different from defaults.
    * Logs are written to `logs/` with a timestamped filename.
@@ -96,7 +98,7 @@ Record types:
 | `vm_secret`   | Define VM provisioning secrets (`ProvisionerUser` or `PCloudAccount`). |
 | `vm_target_set` | Describe VM target sets to onboard. |
 
-See `sia_onboarding_field_mapping.md` for details on every column.
+See `sia_db_onboarding_field_mapping.txt` and `sia_vm_onboarding_field_mapping.txt` for detailed column descriptions.
 
 ### Access Policy Templates
 
