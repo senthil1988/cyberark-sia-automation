@@ -2,8 +2,8 @@
 
 This repository contains a Python helper that streamlines common CyberArk SIA tasks:
 
-* **Workspace onboarding** – authenticates with MFA, verifies Privilege Cloud strong accounts, and onboards databases, secrets, and VM target sets from a CSV template.
-* **Access policy provisioning** – creates recurring DB and VM access policies using a separate CSV template.
+* **Workspace onboarding** – authenticates with MFA, verifies Privilege Cloud strong accounts, and onboards databases or VM target sets from dedicated CSV templates.
+* **Access policy provisioning** – creates recurring DB and VM access policies using dedicated policy templates.
 
 The script relies on the official [CyberArk ark-sdk-python](https://github.com/cyberark/ark-sdk-python) package (included here) to communicate with Identity Security Platform (ISP), SIA services, and Privilege Cloud.
 
@@ -41,9 +41,12 @@ The script relies on the official [CyberArk ark-sdk-python](https://github.com/c
 ```
 ├── ark-sdk-python-main/         # CyberArk offical SDK (embedded for convenience)
 ├── sia_onboarding.py            # Main helper script
-├── sia_onboarding_template.csv  # Sample workspace onboarding template
-├── sia_access_policy_template.csv # Sample access policy template
-├── sia_onboarding_field_mapping.md # Column-by-column mapping guide
+├── sia_db_onboarding_template.csv   # Sample DB onboarding template
+├── sia_vm_onboarding_template.csv   # Sample VM onboarding template
+├── sia_db_access_policy_template.csv # Sample DB access policy template
+├── sia_vm_access_policy_template.csv # Sample VM access policy template
+├── sia_onboarding_field_mapping.md   # DB/VM onboarding column mapping guide
+├── sia_access_policy_field_mapping.md # DB/VM policy column mapping guide
 └── README.md                    # This file
 ```
 
@@ -52,9 +55,11 @@ The script relies on the official [CyberArk ark-sdk-python](https://github.com/c
 ## Usage
 
 1. **Prepare CSV templates**
-   * `sia_onboarding_template.csv` – describes DB/VM secrets, databases, and VM target sets.
-   * `sia_access_policy_template.csv` – describes DB/VM access policies (providers, time windows, rules).
-   * Refer to `sia_onboarding_field_mapping.md` for detailed field descriptions and mapping guidance.
+   * `sia_db_onboarding_template.csv` – DB secrets and database targets.
+   * `sia_vm_onboarding_template.csv` – VM secrets and VM target sets.
+   * `sia_db_access_policy_template.csv` – DB access policies.
+   * `sia_vm_access_policy_template.csv` – VM access policies.
+   * Refer to the field mapping guides for detailed column descriptions.
 
 2. **Run the helper**
    ```bash
@@ -73,29 +78,37 @@ The script relies on the official [CyberArk ark-sdk-python](https://github.com/c
 
 ## Templates Overview
 
-### Workspace Template (`sia_onboarding_template.csv`)
+### Workspace Templates
 
-Supported record types:
+#### DB Onboarding (`sia_db_onboarding_template.csv`)
 
-| record_type     | Purpose                                      |
-|-----------------|----------------------------------------------|
-| `db_secret`     | Define DB strong accounts (PAM, IAM, etc.).  |
-| `vm_secret`     | Define VM provisioning secrets (ProvisionerUser or PCloudAccount). |
-| `database`      | Describe SIA DB workspaces to onboard.       |
-| `vm_target_set` | Describe VM target sets to onboard.          |
+Record types:
 
-See the sample template and `sia_onboarding_field_mapping.md` for required fields.
+| record_type | Purpose |
+|-------------|---------|
+| `db_secret` | Define DB strong accounts (CyberArk PAM, IAM, etc.). |
+| `database`  | Describe SIA DB workspaces to onboard. |
 
-### Access Policy Template (`sia_access_policy_template.csv`)
+#### VM Onboarding (`sia_vm_onboarding_template.csv`)
 
-Supported record types:
+| record_type   | Purpose |
+|---------------|---------|
+| `vm_secret`   | Define VM provisioning secrets (`ProvisionerUser` or `PCloudAccount`). |
+| `vm_target_set` | Describe VM target sets to onboard. |
 
-| record_type  | Purpose                                      |
-|--------------|----------------------------------------------|
-| `db_policy`  | Recurring DB access policies (rules + providers). |
-| `vm_policy`  | Recurring VM access policies.                |
+See `sia_onboarding_field_mapping.md` for details on every column.
 
-Each row includes policy metadata, provider filters, and authorization rule details (user data, schedule, connection behavior). JSON columns (`providers_data`, `connect_as`) must contain valid JSON objects compatible with the SDK models.
+### Access Policy Templates
+
+#### DB Policies (`sia_db_access_policy_template.csv`)
+
+Rows contain `db_policy` records describing providers, scheduling, and connection instructions.
+
+#### VM Policies (`sia_vm_access_policy_template.csv`)
+
+Rows contain `vm_policy` records targeting VM resources and connection profiles.
+
+JSON columns such as `providers_data` and `connect_as` must contain valid objects compatible with the SDK models. The access policy mapping guide explains each structure.
 
 ---
 

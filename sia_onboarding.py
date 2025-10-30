@@ -204,10 +204,14 @@ class VmTargetSetConfig(BaseModel):
 
 
 @dataclass
-class TemplateData:
+class DbTemplateData:
     database_secrets: List[DbSecretConfig] = field(default_factory=list)
-    vm_secrets: List[VmSecretConfig] = field(default_factory=list)
     databases: List[DatabaseConfig] = field(default_factory=list)
+
+
+@dataclass
+class VmTemplateData:
+    vm_secrets: List[VmSecretConfig] = field(default_factory=list)
     vm_target_sets: List[VmTargetSetConfig] = field(default_factory=list)
 
 
@@ -258,26 +262,31 @@ class VmPolicyConfig:
     line_number: int
 
 
-@dataclass
-class PolicyTemplateData:
-    db_policies: List[DbPolicyConfig] = field(default_factory=list)
-    vm_policies: List[VmPolicyConfig] = field(default_factory=list)
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CyberArk SIA helper for onboarding workspaces and access policies.")
     parser.add_argument(
-        "-t",
-        "--template",
+        "--db-template",
         type=Path,
-        default=Path("sia_onboarding_template.csv"),
-        help="Path to the onboarding template CSV file.",
+        default=Path("sia_db_onboarding_template.csv"),
+        help="Path to the database onboarding template CSV file.",
     )
     parser.add_argument(
-        "--policy-template",
+        "--vm-template",
         type=Path,
-        default=Path("sia_access_policy_template.csv"),
-        help="Path to the access policy template CSV file.",
+        default=Path("sia_vm_onboarding_template.csv"),
+        help="Path to the VM onboarding template CSV file.",
+    )
+    parser.add_argument(
+        "--db-policy-template",
+        type=Path,
+        default=Path("sia_db_access_policy_template.csv"),
+        help="Path to the DB access policy template CSV file.",
+    )
+    parser.add_argument(
+        "--vm-policy-template",
+        type=Path,
+        default=Path("sia_vm_access_policy_template.csv"),
+        help="Path to the VM access policy template CSV file.",
     )
     parser.add_argument(
         "--log-dir",
@@ -432,16 +441,15 @@ def require_value(row: Dict[str, str], column: str, line_no: int) -> str:
     return value
 
 
-def load_template_csv(path: Path) -> TemplateData:
+def load_db_template_csv(path: Path) -> DbTemplateData:
     if not path.exists():
-        raise FileNotFoundError(f"Template file '{path}' does not exist")
-    template = TemplateData()
+        raise FileNotFoundError(f"DB onboarding template file '{path}' does not exist")
+    template = DbTemplateData()
     db_aliases: set[str] = set()
-    vm_aliases: set[str] = set()
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         if not reader.fieldnames or "record_type" not in reader.fieldnames:
-            raise ValueError("The CSV file must include a 'record_type' header column.")
+            raise ValueError("The DB onboarding CSV must include a 'record_type' header column.")
         for index, row in enumerate(reader, start=2):  # account for header
             if not row:
                 continue
@@ -451,7 +459,9 @@ def load_template_csv(path: Path) -> TemplateData:
             try:
                 record_key = record_type.lower()
                 if record_key == "db_secret":
-                    alias = require_value(row, "alias", index)
+                    alias = strip_value(row.get("alias")) or strip_value(row.get("secret_name"))
+                    if not alias:
+                        raise ValueError(f"Row {index}: either 'alias' or 'secret_name' must be provided for db_secret entries.")
                     if alias in db_aliases:
                         raise ValueError(f"Row {index}: duplicate DB secret alias '{alias}'")
                     secret = DbSecretConfig(
@@ -475,23 +485,6 @@ def load_template_csv(path: Path) -> TemplateData:
                     )
                     template.database_secrets.append(secret)
                     db_aliases.add(alias)
-                elif record_key == "vm_secret":
-                    alias = require_value(row, "alias", index)
-                    if alias in vm_aliases:
-                        raise ValueError(f"Row {index}: duplicate VM secret alias '{alias}'")
-                    secret = VmSecretConfig(
-                        alias=alias,
-                        secret_type=require_value(row, "secret_type", index),
-                        secret_name=strip_value(row.get("secret_name")),
-                        secret_details=parse_json_object(row.get("secret_details")),
-                        provisioner_username=strip_value(row.get("provisioner_username")),
-                        provisioner_password=strip_value(row.get("provisioner_password")),
-                        pcloud_account_safe=strip_value(row.get("pcloud_account_safe")),
-                        pcloud_account_name=strip_value(row.get("pcloud_account_name")),
-                        is_disabled=parse_bool(row.get("is_disabled")) or False,
-                    )
-                    template.vm_secrets.append(secret)
-                    vm_aliases.add(alias)
                 elif record_key == "database":
                     domain_controller = DomainControllerConfig(
                         name=strip_value(row.get("domain_controller_name")),
@@ -522,6 +515,51 @@ def load_template_csv(path: Path) -> TemplateData:
                         account=strip_value(row.get("account")),
                     )
                     template.databases.append(db_config)
+                else:
+                    raise ValueError(f"Row {index}: unsupported record_type '{record_type}'")
+            except (ValidationError, ValueError) as exc:
+                raise ValueError(f"Error while parsing row {index}: {exc}") from exc
+    if not template.database_secrets and not template.databases:
+        raise ValueError("DB onboarding template did not contain any db_secret or database records.")
+    return template
+
+
+def load_vm_template_csv(path: Path) -> VmTemplateData:
+    if not path.exists():
+        raise FileNotFoundError(f"VM onboarding template file '{path}' does not exist")
+    template = VmTemplateData()
+    vm_aliases: set[str] = set()
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if not reader.fieldnames or "record_type" not in reader.fieldnames:
+            raise ValueError("The VM onboarding CSV must include a 'record_type' header column.")
+        for index, row in enumerate(reader, start=2):
+            if not row:
+                continue
+            record_type = strip_value(row.get("record_type"))
+            if not record_type:
+                continue
+            try:
+                record_key = record_type.lower()
+                if record_key == "vm_secret":
+                    alias = strip_value(row.get("alias")) or strip_value(row.get("secret_name"))
+                    if not alias:
+                        raise ValueError(f"Row {index}: either 'alias' or 'secret_name' must be provided for vm_secret entries.")
+                    if alias in vm_aliases:
+                        raise ValueError(f"Row {index}: duplicate VM secret alias '{alias}'")
+                    secret = VmSecretConfig(
+                        alias=alias,
+                        secret_type=require_value(row, "secret_type", index),
+                        secret_name=strip_value(row.get("secret_name")),
+                        secret_details=parse_json_object(row.get("secret_details")),
+                        provisioner_username=strip_value(row.get("provisioner_username")),
+                        provisioner_password=strip_value(row.get("provisioner_password")),
+                        pcloud_account_safe=strip_value(row.get("pcloud_account_safe")),
+                        pcloud_account_name=strip_value(row.get("pcloud_account_name")),
+                        is_disabled=parse_bool(row.get("is_disabled")) or False,
+                    )
+                    template.vm_secrets.append(secret)
+                    vm_aliases.add(alias)
                 elif record_key == "vm_target_set":
                     target_set = VmTargetSetConfig(
                         name=require_value(row, "name", index),
@@ -538,6 +576,8 @@ def load_template_csv(path: Path) -> TemplateData:
                     raise ValueError(f"Row {index}: unsupported record_type '{record_type}'")
             except (ValidationError, ValueError) as exc:
                 raise ValueError(f"Error while parsing row {index}: {exc}") from exc
+    if not template.vm_secrets and not template.vm_target_sets:
+        raise ValueError("VM onboarding template did not contain any vm_secret or vm_target_set records.")
     return template
 
 
@@ -627,20 +667,31 @@ def prompt_template_path(default_path: Path, message: str) -> Path:
     return selected
 
 
-def ensure_aliases(template: TemplateData) -> None:
-    defined_db_aliases = {secret.alias for secret in template.database_secrets}
-    defined_vm_aliases = {secret.alias for secret in template.vm_secrets}
+def ensure_db_aliases(database_secrets: Iterable[DbSecretConfig], databases: Iterable[DatabaseConfig]) -> None:
+    defined_aliases = {secret.alias for secret in database_secrets}
 
-    def validate_alias(alias: Optional[str], known_aliases: Iterable[str], label: str) -> None:
-        if alias and alias not in known_aliases:
-            raise ValueError(f"{label} alias '{alias}' is referenced but not defined as a secret.")
+    def validate_alias(alias: Optional[str], label: str) -> None:
+        if alias and alias not in defined_aliases:
+            raise ValueError(f"{label} alias '{alias}' is referenced but not defined as a DB secret.")
 
-    for db in template.databases:
-        validate_alias(db.secret_ref, defined_db_aliases, f"Database '{db.name}' secret")
+    for db in databases:
+        validate_alias(db.secret_ref, f"Database '{db.name}' secret")
         for service in db.services:
-            validate_alias(service.secret_ref, defined_db_aliases, f"Database '{db.name}' service '{service.service_name}' secret")
-    for target in template.vm_target_sets:
-        validate_alias(target.secret_ref, defined_vm_aliases, f"Target set '{target.name}' secret")
+            validate_alias(
+                service.secret_ref,
+                f"Database '{db.name}' service '{service.service_name}' secret",
+            )
+
+
+def ensure_vm_aliases(vm_secrets: Iterable[VmSecretConfig], vm_target_sets: Iterable[VmTargetSetConfig]) -> None:
+    defined_aliases = {secret.alias for secret in vm_secrets}
+
+    def validate_alias(alias: Optional[str], label: str) -> None:
+        if alias and alias not in defined_aliases:
+            raise ValueError(f"{label} alias '{alias}' is referenced but not defined as a VM secret.")
+
+    for target in vm_target_sets:
+        validate_alias(target.secret_ref, f"Target set '{target.name}' secret")
 
 
 def parse_db_policy_row(row: Dict[str, str], line_no: int) -> DbPolicyConfig:
@@ -749,14 +800,14 @@ def parse_vm_policy_row(row: Dict[str, str], line_no: int) -> VmPolicyConfig:
     )
 
 
-def load_policy_template_csv(path: Path) -> PolicyTemplateData:
+def load_db_policy_template_csv(path: Path) -> List[DbPolicyConfig]:
     if not path.exists():
-        raise FileNotFoundError(f"Policy template file '{path}' does not exist")
-    template = PolicyTemplateData()
+        raise FileNotFoundError(f"DB policy template file '{path}' does not exist")
+    policies: List[DbPolicyConfig] = []
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         if not reader.fieldnames or "record_type" not in reader.fieldnames:
-            raise ValueError("The policy CSV file must include a 'record_type' header column.")
+            raise ValueError("The DB policy CSV must include a 'record_type' header column.")
         for index, row in enumerate(reader, start=2):
             if not row:
                 continue
@@ -765,16 +816,40 @@ def load_policy_template_csv(path: Path) -> PolicyTemplateData:
                 continue
             try:
                 if record_type.lower() == "db_policy":
-                    template.db_policies.append(parse_db_policy_row(row, index))
-                elif record_type.lower() == "vm_policy":
-                    template.vm_policies.append(parse_vm_policy_row(row, index))
+                    policies.append(parse_db_policy_row(row, index))
                 else:
-                    raise ValueError(f"Unsupported record_type '{record_type}'")
+                    raise ValueError(f"Unsupported record_type '{record_type}' for DB policies")
             except ValueError as exc:
                 raise ValueError(f"Error while parsing row {index}: {exc}") from exc
-    if not template.db_policies and not template.vm_policies:
-        raise ValueError("No access policies were found in the template.")
-    return template
+    if not policies:
+        raise ValueError("No DB access policies were found in the template.")
+    return policies
+
+
+def load_vm_policy_template_csv(path: Path) -> List[VmPolicyConfig]:
+    if not path.exists():
+        raise FileNotFoundError(f"VM policy template file '{path}' does not exist")
+    policies: List[VmPolicyConfig] = []
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if not reader.fieldnames or "record_type" not in reader.fieldnames:
+            raise ValueError("The VM policy CSV must include a 'record_type' header column.")
+        for index, row in enumerate(reader, start=2):
+            if not row:
+                continue
+            record_type = strip_value(row.get("record_type"))
+            if not record_type:
+                continue
+            try:
+                if record_type.lower() == "vm_policy":
+                    policies.append(parse_vm_policy_row(row, index))
+                else:
+                    raise ValueError(f"Unsupported record_type '{record_type}' for VM policies")
+            except ValueError as exc:
+                raise ValueError(f"Error while parsing row {index}: {exc}") from exc
+    if not policies:
+        raise ValueError("No VM access policies were found in the template.")
+    return policies
 
 
 class PCloudAccountValidator:
@@ -920,13 +995,15 @@ def process_vm_policies(sia_api: ArkSIAAPI, configs: List[VmPolicyConfig]) -> Li
     return created
 
 
-def process_access_policies(sia_api: ArkSIAAPI, template: PolicyTemplateData) -> Tuple[List[str], List[str]]:
+def process_access_policies(
+    sia_api: ArkSIAAPI, db_policies: List[DbPolicyConfig], vm_policies: List[VmPolicyConfig]
+) -> Tuple[List[str], List[str]]:
     created_db: List[str] = []
     created_vm: List[str] = []
-    if template.db_policies:
-        created_db = process_db_policies(sia_api, template.db_policies)
-    if template.vm_policies:
-        created_vm = process_vm_policies(sia_api, template.vm_policies)
+    if db_policies:
+        created_db = process_db_policies(sia_api, db_policies)
+    if vm_policies:
+        created_vm = process_vm_policies(sia_api, vm_policies)
     return created_db, created_vm
 
 
@@ -1172,22 +1249,45 @@ def main() -> None:
     sia_api = ArkSIAAPI(isp_auth)
 
     if action == "workspace":
-        template_path = prompt_template_path(args.template, "Workspace onboarding template path")
-        LOGGER.info("Using workspace template: %s", template_path)
-        template = load_template_csv(template_path)
-        ensure_aliases(template)
+        process_db = prompt_yes_no("Process DB onboarding template?", default=True)
+        process_vm = prompt_yes_no("Process VM onboarding template?", default=True)
+        if not process_db and not process_vm:
+            LOGGER.info("No onboarding templates selected. Nothing to do.")
+            return
+
         reuse_existing = prompt_yes_no("Reuse existing SIA objects when matches are found?", default=True)
 
-        db_secret_ids = process_db_secrets(sia_api, template.database_secrets, reuse_existing)
-        pcloud_validator: Optional[PCloudAccountValidator] = None
-        if any(secret.secret_type == ArkSIAVMSecretType.PCloudAccount for secret in template.vm_secrets):
-            pcloud_validator = PCloudAccountValidator(ArkPCloudAPI(isp_auth))
+        db_secret_ids: Dict[str, str] = {}
+        created_databases: List[str] = []
+        if process_db:
+            db_template_path = prompt_template_path(args.db_template, "DB onboarding template path")
+            LOGGER.info("Using DB onboarding template: %s", db_template_path)
+            db_template = load_db_template_csv(db_template_path)
+            ensure_db_aliases(db_template.database_secrets, db_template.databases)
+            db_secret_ids = process_db_secrets(sia_api, db_template.database_secrets, reuse_existing)
+            created_databases = process_databases(sia_api, db_template.databases, db_secret_ids, reuse_existing)
 
-        vm_secret_ids, skipped_vm_aliases = process_vm_secrets(sia_api, template.vm_secrets, reuse_existing, pcloud_validator)
-        created_databases = process_databases(sia_api, template.databases, db_secret_ids, reuse_existing)
-        created_target_sets = process_target_sets(
-            sia_api, template.vm_target_sets, vm_secret_ids, reuse_existing, skipped_vm_aliases
-        )
+        vm_secret_ids: Dict[str, str] = {}
+        skipped_vm_aliases: Set[str] = set()
+        created_target_sets: List[str] = []
+        if process_vm:
+            vm_template_path = prompt_template_path(args.vm_template, "VM onboarding template path")
+            LOGGER.info("Using VM onboarding template: %s", vm_template_path)
+            vm_template = load_vm_template_csv(vm_template_path)
+            ensure_vm_aliases(vm_template.vm_secrets, vm_template.vm_target_sets)
+            pcloud_validator: Optional[PCloudAccountValidator] = None
+            if any(secret.secret_type == ArkSIAVMSecretType.PCloudAccount for secret in vm_template.vm_secrets):
+                pcloud_validator = PCloudAccountValidator(ArkPCloudAPI(isp_auth))
+            vm_secret_ids, skipped_vm_aliases = process_vm_secrets(
+                sia_api, vm_template.vm_secrets, reuse_existing, pcloud_validator
+            )
+            created_target_sets = process_target_sets(
+                sia_api,
+                vm_template.vm_target_sets,
+                vm_secret_ids,
+                reuse_existing,
+                skipped_vm_aliases,
+            )
 
         LOGGER.info("Workspace onboarding finished.")
         if db_secret_ids:
@@ -1196,17 +1296,40 @@ def main() -> None:
             LOGGER.info("VM secrets loaded: %s", ", ".join(f"{alias}={sid}" for alias, sid in vm_secret_ids.items()))
         if skipped_vm_aliases:
             LOGGER.warning("VM secrets skipped (not created): %s", ", ".join(sorted(skipped_vm_aliases)))
-        LOGGER.info("Databases created: %s", ", ".join(created_databases) or "none")
-        LOGGER.info("Target sets created: %s", ", ".join(created_target_sets) or "none")
+        if created_databases:
+            LOGGER.info("Databases created: %s", ", ".join(created_databases))
+        if created_target_sets:
+            LOGGER.info("Target sets created: %s", ", ".join(created_target_sets))
+        if not (created_databases or created_target_sets):
+            LOGGER.info("No new workspaces were created.")
     else:
-        policy_template_path = prompt_template_path(args.policy_template, "Access policy template path")
-        LOGGER.info("Using access policy template: %s", policy_template_path)
-        policy_template = load_policy_template_csv(policy_template_path)
-        created_db_policies, created_vm_policies = process_access_policies(sia_api, policy_template)
+        process_db_policies_flag = prompt_yes_no("Process DB access policy template?", default=True)
+        process_vm_policies_flag = prompt_yes_no("Process VM access policy template?", default=True)
+        if not process_db_policies_flag and not process_vm_policies_flag:
+            LOGGER.info("No access policy templates selected. Nothing to do.")
+            return
+
+        db_policies: List[DbPolicyConfig] = []
+        if process_db_policies_flag:
+            db_policy_template_path = prompt_template_path(args.db_policy_template, "DB access policy template path")
+            LOGGER.info("Using DB access policy template: %s", db_policy_template_path)
+            db_policies = load_db_policy_template_csv(db_policy_template_path)
+
+        vm_policies: List[VmPolicyConfig] = []
+        if process_vm_policies_flag:
+            vm_policy_template_path = prompt_template_path(args.vm_policy_template, "VM access policy template path")
+            LOGGER.info("Using VM access policy template: %s", vm_policy_template_path)
+            vm_policies = load_vm_policy_template_csv(vm_policy_template_path)
+
+        created_db_policies, created_vm_policies = process_access_policies(sia_api, db_policies, vm_policies)
 
         LOGGER.info("Access policy provisioning finished.")
-        LOGGER.info("DB policies created: %s", ", ".join(created_db_policies) or "none")
-        LOGGER.info("VM policies created: %s", ", ".join(created_vm_policies) or "none")
+        if created_db_policies:
+            LOGGER.info("DB policies created: %s", ", ".join(created_db_policies))
+        if created_vm_policies:
+            LOGGER.info("VM policies created: %s", ", ".join(created_vm_policies))
+        if not (created_db_policies or created_vm_policies):
+            LOGGER.info("No new access policies were created.")
 
     LOGGER.info("All tasks completed successfully.")
 

@@ -1,6 +1,11 @@
 # SIA Access Policy CSV Field Mapping Guide
 
-The access-policy helper reads `sia_access_policy_template.csv` to create recurring database (DB) and virtual machine (VM) access policies in CyberArk SIA. Each row describes one policy. Use this guide to map every column to its corresponding SIA concept and ensure templates are populated correctly.
+The access-policy helper reads two templates:
+
+* `sia_db_access_policy_template.csv` – rows with `db_policy` entries.
+* `sia_vm_access_policy_template.csv` – rows with `vm_policy` entries.
+
+Each row describes one policy. Use this guide to map every column to its corresponding SIA concept and ensure templates are populated correctly.
 
 > **Tip:** Leave optional fields blank if they are not needed. Required fields are noted.
 
@@ -8,10 +13,10 @@ The access-policy helper reads `sia_access_policy_template.csv` to create recurr
 
 ## 1. Record Types
 
-| record_type | Purpose | Notes |
-|-------------|---------|-------|
-| `db_policy` | Defines a recurring **Database Access Policy**. | Requires DB provider data and DB-specific `connect_as` settings. |
-| `vm_policy` | Defines a recurring **VM Access Policy**. | Requires VM provider filters and VM-specific `connect_as` settings. |
+| Template | record_type | Purpose | Notes |
+|----------|-------------|---------|-------|
+| DB policy | `db_policy` | Recurring **Database Access Policy**. | Requires DB provider data and DB-specific `connect_as` settings. |
+| VM policy | `vm_policy` | Recurring **VM Access Policy**. | Requires VM provider filters and VM-specific `connect_as` settings. |
 
 Each row must include `record_type` to indicate which policy model to build.
 
@@ -23,7 +28,7 @@ These columns are shared by both DB and VM policies:
 
 | Column | Required | Description / Mapping |
 |--------|----------|-----------------------|
-| `record_type` | ✔ | `db_policy` or `vm_policy`. Determines which policy builder to use. |
+| `record_type` | ✔ | Pre-set in each template (`db_policy` or `vm_policy`). Leave as-is. |
 | `policy_name` | ✔ | SIA policy display name (e.g., “Finance Night Access”). |
 | `description` | – | Optional human-readable description of the policy. |
 | `status` | – | Initial policy state. Accepted values: `Enabled`, `Disabled`, `Draft`, or `Expired`. Defaults to `Enabled` if blank. |
@@ -137,6 +142,7 @@ vm_policy,Corp Workstations After Hours,Enabled,"{""onprem"":{""fqdn_rules"":[{"
 
 ## 9. Validation & Troubleshooting
 
+* Populate the DB and/or VM policy CSV with tenant-specific data.
 * The script validates each row. Errors report the row number and column (e.g., invalid day, missing JSON).
 * Remember to double-quote JSON in the CSV and escape inner quotes.
 * If a policy fails validation, the run stops for that row; fix the template and rerun.

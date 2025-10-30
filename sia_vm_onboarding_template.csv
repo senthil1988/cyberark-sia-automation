@@ -1,0 +1,3 @@
+record_type,alias,secret_name,secret_type,description,purpose,secret_details,provisioner_username,provisioner_password,pcloud_account_safe,pcloud_account_name,is_disabled,name,target_set_type,provision_format,enable_certificate_validation,secret_alias,secret_id,comment
+vm_secret,workstations_admin_secret,Workstations-Privileged,PCloudAccount,Strong account stored in Privilege Cloud for workstation access,Provisioner account,"{""owner"":""Workspace Platform""}",,,Windows-Servers,CORP-WIN-ADMIN,,,,,,,,Privilege Cloud secret referenced by VM target set
+vm_target_set,,,PCloudAccount,Domain-joined Windows servers managed by SIA,,,,,,,,corp.local,Domain,{user}@corp.local,true,workstations_admin_secret,,VM target set referencing the Privilege Cloud secret

@@ -1,6 +1,11 @@
 # SIA Onboarding CSV Field Mapping Guide
 
-The onboarding helper reads a single CSV file (`sia_onboarding_template.csv`) containing multiple record types. Each row describes either a secret, a database workspace, or a VM target set. Use this guide to understand what each column represents and how it maps to SIA concepts.
+The onboarding helper now consumes **two** input files:
+
+* `sia_db_onboarding_template.csv` – DB secrets (`db_secret`) and database workspaces (`database`).
+* `sia_vm_onboarding_template.csv` – VM secrets (`vm_secret`) and VM target sets (`vm_target_set`).
+
+Use this guide to understand what every column represents and how it maps to CyberArk SIA concepts.
 
 > **Tip:** Leave optional fields empty if they do not apply. Required fields are marked.
 
@@ -8,24 +13,24 @@ The onboarding helper reads a single CSV file (`sia_onboarding_template.csv`) co
 
 ## 1. Record Types
 
-| record_type value | Purpose |
-| --- | --- |
-| `db_secret` | Defines a database strong account or credential set (CyberArk PAM, IAM user, Mongo Atlas keys, etc.). |
-| `vm_secret` | Defines a VM provisioning secret (Privilege Cloud account or local provisioner). |
-| `database` | Describes a database workspace to onboard in SIA. References DB secrets. |
-| `vm_target_set` | Describes a VM target set workspace. References VM secrets. |
+| Template | record_type | Purpose |
+| --- | --- | --- |
+| DB onboarding | `db_secret` | Defines a database strong account or credential set (CyberArk PAM, IAM user, Mongo Atlas keys, etc.). |
+| DB onboarding | `database` | Describes a database workspace to onboard in SIA. References DB secrets. |
+| VM onboarding | `vm_secret` | Defines a VM provisioning secret (Privilege Cloud account or local provisioner). |
+| VM onboarding | `vm_target_set` | Describes a VM target set workspace. References VM secrets. |
 
 ---
 
 ## 2. Common Columns
 
-These columns appear on several record types and have consistent meaning:
+These columns appear on one or more templates and retain the same meaning:
 
 | Column | Applies to | Meaning |
 | --- | --- | --- |
 | `record_type` *(required)* | All | Identifies which record type the row describes. |
 | `name` *(required for database & target set)* | database, vm_target_set | Display name of the workspace or target set. |
-| `alias` *(required for secrets)* | db_secret, vm_secret | Local identifier used by other rows to reference this secret (e.g., `db_admin_secret`). Must be unique within the record type. |
+| `alias` *(recommended for secrets)* | db_secret, vm_secret | Local identifier used by other rows to reference this secret (e.g., `db_admin_secret`). If omitted, the helper automatically falls back to `secret_name`. Must remain unique within the file. |
 | `comment` | All | Free-form notes to document why or how the entry is used. |
 | `tags` | db_secret, database | Semi-colon separated `key=value` pairs (e.g., `env=prod;team=finance`). |
 | `enable_certificate_validation` | database, vm_target_set | `true/false` or `yes/no` to control TLS certificate validation. |
@@ -126,7 +131,7 @@ If an alias is used but not defined, the script stops with a validation error. T
 
 ## 9. Validating the Template
 
-1. Populate the CSV with your tenant-specific data.
+1. Populate the DB and/or VM CSVs with your tenant-specific data.
 2. Run `python3 sia_onboarding.py` and follow the prompts.
 3. The helper validates aliases and required fields before calling SIA APIs.
 
